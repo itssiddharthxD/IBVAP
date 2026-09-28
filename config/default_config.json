@@ -1,0 +1,15 @@
+{
+  "app_name": "IBVAP Command Center",
+  "database": "data/ibvap.db",
+  "model_path": "models/yolo.pt",
+  "device": "auto",
+  "confidence": 0.35,
+  "iou": 0.45,
+  "imgsz": 640,
+  "max_fps": 25,
+  "snapshot_dir": "data/snapshots",
+  "zone": {
+    "enabled": false,
+    "points": [[100,100],[800,100],[800,500],[100,500]]
+  }
+}
