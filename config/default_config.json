@@ -1,15 +1,40 @@
 {
-  "app_name": "IBVAP Command Center",
-  "database": "data/ibvap.db",
-  "model_path": "models/yolo.pt",
-  "device": "auto",
-  "confidence": 0.35,
-  "iou": 0.45,
-  "imgsz": 640,
-  "max_fps": 25,
-  "snapshot_dir": "data/snapshots",
-  "zone": {
-    "enabled": false,
-    "points": [[100,100],[800,100],[800,500],[100,500]]
+  "application": {
+    "name": "IBVAP",
+    "version": "1.0.0",
+    "demo_mode": false,
+    "logging_level": "INFO"
+  },
+  "ai": {
+    "device": "AUTO",
+    "confidence": 0.45,
+    "frame_interval": 3,
+    "model_paths": {
+      "yolo": "models/yolo11n.pt",
+      "scrfd": "models/scrfd_500m.onnx",
+      "arcface": "models/arcface_r100.onnx",
+      "plate_detector": "models/plate_detector.pt",
+      "ocr": "models/ocr_model"
+    }
+  },
+  "video": {
+    "default_resolution": [
+      1280,
+      720
+    ],
+    "target_fps": 30,
+    "buffer_size": 30,
+    "reconnect_attempts": 5,
+    "reconnect_delay_sec": 3
+  },
+  "storage": {
+    "database_path": "data/ibvap.db",
+    "snapshot_path": "data/snapshots",
+    "recording_path": "data/recordings",
+    "retention_days": 30
+  },
+  "ui": {
+    "theme": "dark",
+    "default_grid": "2x2"
   }
 }
