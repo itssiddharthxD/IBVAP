@@ -1,9 +1,9 @@
-"""Video tile — black chrome."""
+"""Single camera video tile."""
 from __future__ import annotations
 
-from typing import Optional, List
-import numpy as np
+from typing import List, Optional
 import cv2
+import numpy as np
 
 from PySide6.QtWidgets import QLabel, QSizePolicy
 from PySide6.QtCore import Qt, Signal
@@ -30,7 +30,12 @@ class VideoViewer(QLabel):
         self._last_detections: List[DetectionResult] = []
         self._last_faces: List[FaceResult] = []
         self._last_anpr: List[ANPRResult] = []
+        self._zones: List[dict] = []
         self._fps = 0.0
+
+    def set_zones(self, zones: Optional[List[dict]]) -> None:
+        """Zone dicts with normalized polygon points for this camera."""
+        self._zones = list(zones or [])
 
     def update_frame(
         self,
@@ -39,6 +44,7 @@ class VideoViewer(QLabel):
         detections: Optional[List[DetectionResult]] = None,
         faces: Optional[List[FaceResult]] = None,
         anpr: Optional[List[ANPRResult]] = None,
+        zones: Optional[List[dict]] = None,
     ) -> None:
         if detections is not None:
             self._last_detections = detections
@@ -46,10 +52,16 @@ class VideoViewer(QLabel):
             self._last_faces = faces
         if anpr is not None:
             self._last_anpr = anpr
+        if zones is not None:
+            self._zones = zones
         self._fps = fps
 
         display = draw_detections(
-            frame, self._last_detections, self._last_faces, self._last_anpr
+            frame,
+            self._last_detections,
+            self._last_faces,
+            self._last_anpr,
+            zones=self._zones,
         )
         h, w = display.shape[:2]
         bar_h = 22
@@ -66,6 +78,18 @@ class VideoViewer(QLabel):
             1,
             cv2.LINE_AA,
         )
+        # zone count badge
+        if self._zones:
+            cv2.putText(
+                display,
+                f"ZONES {len(self._zones)}",
+                (w - 90, 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.4,
+                (80, 80, 220),
+                1,
+                cv2.LINE_AA,
+            )
         rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
         qimg = QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888)
         pix = QPixmap.fromImage(qimg)
@@ -79,6 +103,7 @@ class VideoViewer(QLabel):
         self._last_detections = []
         self._last_faces = []
         self._last_anpr = []
+        self._zones = []
 
     def mousePressEvent(self, event) -> None:
         self.clicked.emit()

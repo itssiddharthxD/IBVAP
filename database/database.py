@@ -42,7 +42,7 @@ def get_engine():
 def get_session_factory():
     global _SessionLocal
     if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)
+        _SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, expire_on_commit=False)
     return _SessionLocal
 
 
@@ -60,8 +60,28 @@ def get_session() -> Generator[Session, None, None]:
         session.close()
 
 
+def ensure_schema(engine) -> None:
+    """Best-effort ADD COLUMN for upgrades on existing SQLite DBs."""
+    from sqlalchemy import text as sql_text
+    alters = [
+        "ALTER TABLE security_rules ADD COLUMN line JSON",
+        "ALTER TABLE security_rules ADD COLUMN schedule_start_hour INTEGER",
+        "ALTER TABLE security_rules ADD COLUMN schedule_end_hour INTEGER",
+        "ALTER TABLE security_rules ADD COLUMN record_on_alert BOOLEAN DEFAULT 0",
+        "ALTER TABLE suspicious_activities ADD COLUMN recording VARCHAR(512)",
+        "ALTER TABLE suspicious_activities ADD COLUMN plate_text VARCHAR(32)",
+    ]
+    with engine.begin() as conn:
+        for stmt in alters:
+            try:
+                conn.execute(sql_text(stmt))
+            except Exception:
+                pass
+
+
 def init_db() -> None:
     """Create all tables if they do not exist."""
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+    ensure_schema(get_engine())
     logger.info("Database initialized")

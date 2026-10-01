@@ -57,54 +57,82 @@ class AddPersonDialog(QDialog):
         }
 
 
+
 class WatchlistPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.service = WatchlistService()
+        from services.plate_watchlist_service import PlateWatchlistService
+        self.plate_svc = PlateWatchlistService()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
 
-        header = QHBoxLayout()
         title = QLabel("Watchlist")
         title.setObjectName("pageTitle")
-        header.addWidget(title)
+        root.addWidget(title)
+
+        from PySide6.QtWidgets import QTabWidget
+        tabs = QTabWidget()
+        tabs.addTab(self._build_faces_tab(), "Faces")
+        tabs.addTab(self._build_plates_tab(), "Plates")
+        root.addWidget(tabs)
+
+    def _build_faces_tab(self) -> QWidget:
+        w = QWidget()
+        root = QVBoxLayout(w)
+        header = QHBoxLayout()
         header.addStretch()
-
-        self.btn_add = QPushButton("Add person")
-        self.btn_add.setObjectName("toolBtnPrimary")
-        self.btn_add.clicked.connect(self._add)
-        self.btn_delete = QPushButton("Delete")
-        self.btn_delete.setObjectName("toolBtn")
-        self.btn_delete.clicked.connect(self._delete)
-        self.btn_refresh = QPushButton("Refresh")
-        self.btn_refresh.setObjectName("toolBtn")
-        self.btn_refresh.clicked.connect(self.refresh)
-        for b in (self.btn_add, self.btn_delete, self.btn_refresh):
-            b.setCursor(Qt.PointingHandCursor)
-            header.addWidget(b)
+        btn_add = QPushButton("Add person")
+        btn_add.setObjectName("toolBtnPrimary")
+        btn_add.clicked.connect(self._add)
+        btn_del = QPushButton("Delete")
+        btn_del.setObjectName("toolBtn")
+        btn_del.clicked.connect(self._delete)
+        btn_ref = QPushButton("Refresh")
+        btn_ref.setObjectName("toolBtn")
+        btn_ref.clicked.connect(self.refresh)
+        header.addWidget(btn_add)
+        header.addWidget(btn_del)
+        header.addWidget(btn_ref)
         root.addLayout(header)
-
-        note = QLabel(
-            "Local only — face photos & embeddings never leave this machine.\n"
-            "Camera profile: Person Monitoring (Face Detection + Face Recognition)."
-        )
-        note.setObjectName("pageHint")
-        root.addWidget(note)
-
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(
-            ["Person ID", "Name", "Status", "Has face", "Notes"]
-        )
+        self.table.setHorizontalHeaderLabels(["ID", "Name", "Status", "Face", "Notes"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(False)
         root.addWidget(self.table)
         self.refresh()
+        return w
+
+    def _build_plates_tab(self) -> QWidget:
+        w = QWidget()
+        root = QVBoxLayout(w)
+        header = QHBoxLayout()
+        header.addWidget(QLabel("Blacklist / whitelist plates for ANPR rules"))
+        header.addStretch()
+        btn_add = QPushButton("Add plate")
+        btn_add.setObjectName("toolBtnPrimary")
+        btn_add.clicked.connect(self._add_plate)
+        btn_del = QPushButton("Delete")
+        btn_del.setObjectName("toolBtn")
+        btn_del.clicked.connect(self._del_plate)
+        btn_ref = QPushButton("Refresh")
+        btn_ref.setObjectName("toolBtn")
+        btn_ref.clicked.connect(self.refresh_plates)
+        header.addWidget(btn_add)
+        header.addWidget(btn_del)
+        header.addWidget(btn_ref)
+        root.addLayout(header)
+        self.plate_table = QTableWidget(0, 4)
+        self.plate_table.setHorizontalHeaderLabels(["ID", "Plate", "List", "Notes"])
+        self.plate_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.plate_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.plate_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        root.addWidget(self.plate_table)
+        self.refresh_plates()
+        return w
 
     def refresh(self) -> None:
         persons = self.service.list_persons()
@@ -116,37 +144,33 @@ class WatchlistPage(QWidget):
             vals = [p.person_id, p.name, p.status, has_face, p.notes or "—"]
             for col, v in enumerate(vals):
                 self.table.setItem(row, col, QTableWidgetItem(str(v)))
-            self.table.setRowHeight(row, 30)
+
+    def refresh_plates(self) -> None:
+        plates = self.plate_svc.list_plates(active_only=False)
+        self.plate_table.setRowCount(0)
+        for p in plates:
+            row = self.plate_table.rowCount()
+            self.plate_table.insertRow(row)
+            vals = [p.plate_id, p.plate_text, p.list_type, p.notes or "—"]
+            for col, v in enumerate(vals):
+                self.plate_table.setItem(row, col, QTableWidgetItem(str(v)))
 
     def _add(self) -> None:
         dlg = AddPersonDialog(self)
         if dlg.exec() != QDialog.Accepted:
             return
         data = dlg.get_data()
-        if not data["name"]:
-            QMessageBox.warning(self, "Validation", "Name is required.")
-            return
-        if not data["image"]:
-            QMessageBox.warning(self, "Validation", "Please select a face photo.")
+        if not data["name"] or not data["image"]:
+            QMessageBox.warning(self, "Validation", "Name and photo required.")
             return
         try:
             person = self.service.add_person_from_image(
                 name=data["name"], image_path=data["image"], notes=data["notes"]
             )
             if not person.embedding:
-                QMessageBox.warning(
-                    self,
-                    "No face embedding",
-                    "Person saved, but no face was detected in the photo "
-                    "(or insightface is not installed).\n\n"
-                    "Install: pip install insightface onnxruntime\n"
-                    "Then delete and re-add with a clear frontal photo.",
-                )
+                QMessageBox.warning(self, "No face", "Saved but no face embedding.")
             else:
-                QMessageBox.information(
-                    self, "Added",
-                    f"{person.name} added.\nRestart camera streams so the gallery reloads.",
-                )
+                QMessageBox.information(self, "Added", f"{person.name} added.")
             self.refresh()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -159,3 +183,31 @@ class WatchlistPage(QWidget):
         if QMessageBox.question(self, "Confirm", f"Delete {pid}?") == QMessageBox.Yes:
             self.service.delete_person(pid)
             self.refresh()
+
+    def _add_plate(self) -> None:
+        plate, ok = QInputDialog.getText(self, "Add plate", "Plate number:")
+        if not ok or not plate.strip():
+            return
+        list_type, ok2 = QInputDialog.getItem(
+            self, "List type", "Type:", ["blacklist", "whitelist"], 0, False
+        )
+        if not ok2:
+            return
+        try:
+            self.plate_svc.add(plate.strip(), list_type=list_type)
+            self.refresh_plates()
+            QMessageBox.information(
+                self, "Added",
+                f"{plate.upper()} on {list_type}.\nEnable rule type «Plate Blacklist Match» for alerts."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def _del_plate(self) -> None:
+        rows = self.plate_table.selectionModel().selectedRows()
+        if not rows:
+            return
+        pid = self.plate_table.item(rows[0].row(), 0).text()
+        if QMessageBox.question(self, "Confirm", "Delete plate?") == QMessageBox.Yes:
+            self.plate_svc.delete(pid)
+            self.refresh_plates()

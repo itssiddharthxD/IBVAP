@@ -113,7 +113,8 @@ class AIPipeline:
         if need_yolo and self.yolo.is_ready():
             yolo_conf = min(conf_threshold, 0.35) if anpr_enabled else conf_threshold
             raw = self.yolo.detect(frame, camera_id, timestamp, conf_threshold=yolo_conf)
-            if task_manager.is_enabled("Tracking"):
+            # Always assign track IDs when we have detections (needed for line/loiter rules)
+            if raw:
                 raw = self.tracker.update(raw, frame)
             filtered = []
             for d in raw:

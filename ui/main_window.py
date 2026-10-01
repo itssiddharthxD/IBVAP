@@ -19,9 +19,14 @@ from ui.pages.dashboard import DashboardPage
 from ui.pages.cameras import CamerasPage
 from ui.pages.live_monitor import LiveMonitorPage
 from ui.pages.events import EventsPage
+from ui.pages.suspicious import SuspiciousPage
 from ui.pages.watchlist import WatchlistPage
 from ui.pages.analytics import AnalyticsPage
 from ui.pages.settings import SettingsPage
+from security.rule_manager import RuleManager
+from security.analytics_engine import AnalyticsEngine
+from security.alert_manager import AlertManager
+from services.retention_service import RetentionService
 
 
 class MainWindow(QMainWindow):
@@ -42,6 +47,16 @@ class MainWindow(QMainWindow):
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start(1000)
         self._update_clock()
+
+        self._alert_timer = QTimer(self)
+        self._alert_timer.timeout.connect(self._refresh_alert_badge)
+        self._alert_timer.start(3000)
+        self._refresh_alert_badge()
+
+        try:
+            RetentionService.run()
+        except Exception:
+            pass
 
         device = SystemService.detect_ai_device()
         self.device_pill.setText(f"AI  ·  {device}")
@@ -108,6 +123,7 @@ class MainWindow(QMainWindow):
             ("live", "Live Monitor"),
             ("cameras", "Cameras"),
             ("events", "Events"),
+            ("suspicious", "Suspicious"),
             ("watchlist", "Watchlist"),
             ("analytics", "Analytics"),
             ("settings", "Settings"),
@@ -220,14 +236,18 @@ class MainWindow(QMainWindow):
         self.page_live = LiveMonitorPage(self.video_service)
         self.page_cameras = CamerasPage(self.video_service)
         self.page_events = EventsPage()
+        self.page_suspicious = SuspiciousPage(self.video_service)
         self.page_watchlist = WatchlistPage()
         self.page_analytics = AnalyticsPage()
         self.page_settings = SettingsPage()
+        self._rule_mgr = RuleManager.instance()
+        self._analytics = AnalyticsEngine(rule_manager=self._rule_mgr, alert_manager=AlertManager())
+        self._frame_sizes: dict = {}  # camera_id -> (w, h)
 
         for p in (
             self.page_dashboard, self.page_live, self.page_cameras,
-            self.page_events, self.page_watchlist, self.page_analytics,
-            self.page_settings,
+            self.page_events, self.page_suspicious, self.page_watchlist,
+            self.page_analytics, self.page_settings,
         ):
             self.stack.addWidget(p)
 
@@ -241,13 +261,14 @@ class MainWindow(QMainWindow):
             "live": "Live Monitor",
             "cameras": "Cameras",
             "events": "Events",
+            "suspicious": "Suspicious Activity",
             "watchlist": "Watchlist",
             "analytics": "Analytics",
             "settings": "Settings",
         }
         mapping = {
             "dashboard": 0, "live": 1, "cameras": 2, "events": 3,
-            "watchlist": 4, "analytics": 5, "settings": 6,
+            "suspicious": 4, "watchlist": 5, "analytics": 6, "settings": 7,
         }
         self.stack.setCurrentIndex(mapping.get(key, 0))
         self.section_label.setText(titles.get(key, "IBVAP"))
@@ -259,6 +280,7 @@ class MainWindow(QMainWindow):
         sm.frame_ready.connect(self.page_live.on_frame)
         sm.detection_ready.connect(self.page_live.on_detections)
         sm.detection_ready.connect(self._on_detections_persist)
+        sm.frame_ready.connect(self._on_frame_for_size)
         sm.status_changed.connect(self._on_status)
         sm.error.connect(self._on_error)
         sm.stream_finished.connect(self._on_stream_finished)
@@ -286,6 +308,29 @@ class MainWindow(QMainWindow):
                 svc.save_face(f)
             for a in anpr or []:
                 svc.save_anpr(a)
+        except Exception:
+            pass
+        # Security rules → Analytics Engine → Suspicious Activity
+        try:
+            ts = datetime.utcnow()
+            if dets:
+                ts = getattr(dets[0], "timestamp", ts) or ts
+            frame_size = self._frame_sizes.get(camera_id)
+            if not frame_size and dets:
+                # fallback: estimate from bbox extents
+                max_x = max((d.bounding_box.x2 for d in dets), default=0)
+                max_y = max((d.bounding_box.y2 for d in dets), default=0)
+                if max_x > 2 and max_y > 2:
+                    frame_size = (max(max_x * 1.05, 640), max(max_y * 1.05, 360))
+            created = self._analytics.process(
+                camera_id, ts,
+                detections=dets or [],
+                faces=faces or [],
+                anpr=anpr or [],
+                frame_size=frame_size,
+            )
+            if created:
+                self._on_new_alerts(created)
         except Exception:
             pass
 
@@ -324,11 +369,94 @@ class MainWindow(QMainWindow):
             self.detail_label.setText("")
 
     def _update_active_count(self) -> None:
-        n = len(self.video_service.running_list())
-        self.streams_pill.setText(f"Streams  {n}")
+        try:
+            alerts = AlertManager().count_new()
+        except Exception:
+            alerts = 0
+        if alerts > 0:
+            self._set_alert_badge(alerts)
+        else:
+            n = len(self.video_service.running_list())
+            self.streams_pill.setText(f"Streams  {n}")
+            self.streams_pill.setStyleSheet("")
 
     def _update_clock(self) -> None:
         self.clock_label.setText(datetime.now().strftime("%Y-%m-%d   %H:%M:%S"))
+
+
+    def _on_new_alerts(self, created) -> None:
+        try:
+            n = AlertManager().count_new()
+            self._set_alert_badge(n)
+            for row in created:
+                if (getattr(row, "severity", "") or "").lower() in ("critical", "high"):
+                    try:
+                        import winsound
+                        winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+                    except Exception:
+                        print("\a", end="", flush=True)
+                    break
+        except Exception:
+            pass
+
+    def _refresh_alert_badge(self) -> None:
+        try:
+            n = AlertManager().count_new()
+            self._set_alert_badge(n)
+        except Exception:
+            pass
+
+    def _set_alert_badge(self, n: int) -> None:
+        if not hasattr(self, "streams_pill"):
+            return
+        if n > 0:
+            self.streams_pill.setText(f"Alerts  {n}")
+            self.streams_pill.setStyleSheet(
+                "background:#3A1515; color:#E05555; border:1px solid #E05555; "
+                "border-radius:4px; padding:4px 10px; font-weight:700;"
+            )
+        else:
+            running = 0
+            try:
+                running = len(self.video_service.running_list())
+            except Exception:
+                pass
+            self.streams_pill.setText(f"Streams  {running}")
+            self.streams_pill.setStyleSheet("")
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        mods = event.modifiers()
+        if key == Qt.Key_F5:
+            try:
+                self.page_events.refresh()
+            except Exception:
+                pass
+        elif key == Qt.Key_F6:
+            self._navigate("suspicious")
+        elif key == Qt.Key_F7:
+            self._navigate("events")
+        elif key == Qt.Key_A and (mods & Qt.ControlModifier):
+            try:
+                rows = AlertManager().recent(limit=1, status="new")
+                if rows:
+                    AlertManager().acknowledge(rows[0].activity_id)
+                    self._refresh_alert_badge()
+            except Exception:
+                pass
+        else:
+            super().keyPressEvent(event)
+
+
+    def _on_frame_for_size(self, camera_id: str, frame, fps: float = 0.0) -> None:
+        """Cache last frame dimensions for rule geometry (normalized zones)."""
+        try:
+            if frame is not None and hasattr(frame, "shape"):
+                h, w = frame.shape[:2]
+                if w > 1 and h > 1:
+                    self._frame_sizes[camera_id] = (float(w), float(h))
+        except Exception:
+            pass
 
     def closeEvent(self, event) -> None:
         self.video_service.stop_all()
