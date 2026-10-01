@@ -1,62 +1,43 @@
 # IBVAP — Intelligent Border Video Analytics Platform
 
-Offline / edge-first intelligent video analytics desktop application for security monitoring using CCTV/IP cameras, webcams, and prerecorded video files.
+Offline edge video analytics: cameras, YOLO, tracking, face, ANPR, configurable security rules.
 
-## Features
+## New in this build (non-integration)
 
-- Camera management (RTSP, Webcam, Video files)
-- AI Profiles: ANPR, Person Monitoring, Vehicle Monitoring, General Detection, Custom
-- Modular AI tasks per camera (Person/Vehicle/Face/ANPR/Tracking)
-- Live monitoring grid (1×1 / 2×2 / 3×3)
-- Local SQLite database for cameras, events, watchlist, ANPR
-- Dashboard with real local metrics
-- Dark professional command-center UI
-- Fully offline — no cloud dependencies at runtime
+- **Live alert badge** on top bar + beep on high/critical
+- **Keyboard**: F5 refresh events, F6 Suspicious, F7 Events, Ctrl+A acknowledge newest
+- **Events** category dropdown + CSV export
+- **Unknown face** → suspicious (default rule, face quality filter)
+- **Plate watchlist** (blacklist/whitelist) + **Plate Blacklist** rule
+- **Line crossing** rule (first 2 zone points = line)
+- **Schedule** hours on rules + **record on alert**
+- **Rule templates** (Border Night / Gate Control / Crowd packs)
+- **Dashboard** person / ANPR / unknown face / suspicious-new counters
+- **Analytics** 24h heatmap + CSV export events/suspicious
+- **Retention** job on startup (`storage.retention_days`)
+- **Zones/lines** drawn on Live Monitor
 
-## Requirements
-
-- Python 3.12+
-- See `requirements.txt`
-
-## Quick Start
+## Quick start
 
 ```bash
 cd IBVAP
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+# Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 python run.py
 ```
 
-## Models
+If upgrading an old DB fails, delete `data/ibvap.db` once (schema auto-migrates best-effort).
 
-Place model files under `models/`:
+## Shortcuts
 
-| Model            | Default path                  |
-|------------------|-------------------------------|
-| YOLO             | models/yolo11n.pt             |
-| SCRFD            | models/scrfd_500m.onnx        |
-| ArcFace          | models/arcface_r100.onnx      |
-| Plate detector   | models/plate_detector.pt      |
-
-The application starts even if models are missing and shows clear error messages instead of crashing.
-
-## Architecture
-
-```
-UI (PySide6)
-  → Services
-    → Video Engine (OpenCV + QThread workers)
-    → AI Engine (YOLO / SCRFD / ArcFace / ANPR interfaces)
-    → SQLite (SQLAlchemy)
-```
-
-AI tasks answer *"What can the camera detect?"*  
-Future security rules will answer *"What should happen when something is detected?"* and remain architecturally separate.
-
-## Project Structure
-
-See the repository tree under `IBVAP/`.
+| Key | Action |
+|-----|--------|
+| F5 | Refresh Events |
+| F6 | Open Suspicious |
+| F7 | Open Events |
+| Ctrl+A | Acknowledge newest suspicious |
 
 ## License
 

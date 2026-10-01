@@ -86,10 +86,10 @@ class DashboardPage(QWidget):
             "online": MetricPanel("Online", accent="#3D9B8F"),
             "offline": MetricPanel("Offline", accent="#6A6A6A"),
             "streams": MetricPanel("Active streams", accent="#3D9B8F"),
-            "persons": MetricPanel("Detections 24h", accent="#5B8DEF"),
+            "persons": MetricPanel("Person 24h", accent="#5B8DEF"),
             "anpr": MetricPanel("ANPR 24h", accent="#D4A017"),
-            "faces": MetricPanel("Face events", accent="#9B7EDE"),
-            "events": MetricPanel("Total events", accent="#5B8DEF"),
+            "faces": MetricPanel("Unknown face", accent="#E05555"),
+            "events": MetricPanel("Suspicious new", accent="#E07A3D"),
         }
         for r, c, k in [
             (0, 0, "cameras"), (0, 1, "online"), (0, 2, "offline"), (0, 3, "streams"),
@@ -163,18 +163,23 @@ class DashboardPage(QWidget):
         total = len(cams)
         online = len([c for c in cams if c.camera_id in running])
 
-        det = self.detection_service.count_detections("detection")
+        person = self.detection_service.count_detections("person")
         anpr = self.detection_service.count_detections("anpr")
-        face = self.detection_service.count_detections("face")
+        face_u = self.detection_service.count_detections("face_unknown")
+        try:
+            from security.alert_manager import AlertManager
+            sus_new = AlertManager().count_new()
+        except Exception:
+            sus_new = 0
 
         self.metrics["cameras"].set_value(str(total))
         self.metrics["online"].set_value(str(online))
         self.metrics["offline"].set_value(str(total - online))
         self.metrics["streams"].set_value(str(len(running)))
-        self.metrics["persons"].set_value(str(det))
+        self.metrics["persons"].set_value(str(person))
         self.metrics["anpr"].set_value(str(anpr))
-        self.metrics["faces"].set_value(str(face))
-        self.metrics["events"].set_value(str(det + anpr + face))
+        self.metrics["faces"].set_value(str(face_u))
+        self.metrics["events"].set_value(str(sus_new))
 
         if running:
             lines = []
@@ -209,5 +214,7 @@ class DashboardPage(QWidget):
                 item = QTableWidgetItem(str(v))
                 if e.event_type == "anpr":
                     item.setForeground(QColor("#D4A017"))
+                elif e.event_type in ("face_unknown", "suspicious"):
+                    item.setForeground(QColor("#E05555"))
                 self.events_table.setItem(row, col, item)
             self.events_table.setRowHeight(row, 28)
